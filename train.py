@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import os
 import tensorflow as tf
 
 import gym
@@ -188,15 +189,15 @@ class Player:
 
     def generate_action(self, state):
         mask = 1.0 - state[govars.INVD_CHNL].ravel()
-        if mask.any(): 
-            mask = np.append(mask, 1.0)  # add PASS option
-            state = channels_last(state)
-            output = self.model.predict(state, verbose=0).ravel()
-            prob = output * mask
+        mask = np.append(mask, 1.0)  # add PASS option
+        state = channels_last(state)
+        output = self.model.predict(state, verbose=0).ravel()
+        prob = output * mask
+        if any(prob):
             prob /= np.sum(prob)
             action = np.random.choice(len(prob), p=prob)
         else:
-            action = np.prod(state.shape[1:]) # PASS
+            action = len(prob) - 1 # PASS
         return action
 
 
@@ -274,6 +275,13 @@ for i in range(n_batches):
     print(f"Batch {i:03}. Avg. Moves: {np.mean(move_lens):.1f} Total Reward: {np.sum(rewards)} Winning Ratio: {np.count_nonzero(np.array(rewards)==1)/len(rewards):.3f} Loss: mean. {np.mean(losses):.5f} std. {np.std(losses):.5f} var. {np.var(losses):.5f} Grads Norm: {grads_norm:.5f} Scaled Grads Norm. {scaled_grads_norm:.5f} lr: {learner_model.optimizer.learning_rate.numpy():.10f}")
 
     trainer.clear()
+
+    # Save intermediate models.
+    if i % 10 == 0:
+        os.makedirs("./logs/weights", exist_ok=True)
+        learner_weights = "{:05d}.weights.h5".format(i)
+        learner_model.save_weights(os.path.join('./logs/weights', learner_weights))
+
 
     learner.color = 1 - learner.color
 
