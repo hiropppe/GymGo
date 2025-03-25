@@ -9,21 +9,48 @@ import model
 from tensorflow import keras
 
 from gym_go import gogame, govars
+from gym_go.govars import BLACK, WHITE
 
 np.set_printoptions(suppress=True, linewidth=200, precision=5)
 
 parser = argparse.ArgumentParser(description='Go REINFORCE')
-parser.add_argument('--boardsize', '-b', type=int, default=7)
+parser.add_argument('--boardsize', '-B', type=int, default=7)
 parser.add_argument('--komi', '-k', type=float, default=0)
+parser.add_argument('--game_batch', '-g', type=float, default=32)
+parser.add_argument('--batch', '-b', type=float, default=100)
 args = parser.parse_args()
 
 defaults = {
-    "input_dim": 6,
+    "input_dim": 17,
     "board": args.boardsize,
     "filters_per_layer": 43,
     "layers": 6,
     "filter_width_1": 3
 }
+
+learner_model = model.cnn_policy(**defaults)
+opponent_model = model.cnn_policy(**defaults)
+
+optimizer = keras.optimizers.Adam(learning_rate=0.001)
+
+# Instantiate the learning rate schedule
+#initial_learning_rate = 0.001
+#alpha = 0.01
+#warmup_target = 1e-3
+#cosine_decay = tf.keras.optimizers.schedules.CosineDecay(
+#    initial_learning_rate=warmup_target,
+#    decay_steps=1000,
+#    alpha=alpha
+#)
+#optimizer = keras.optimizers.Adam(learning_rate=cosine_decay)
+
+learner_model.compile(optimizer=optimizer)
+learner_model.summary()
+
+bsize = args.boardsize
+komi = args.komi
+game_batch = args.game_batch
+n_batches = args.batch
 
 
 def channels_last(state):
@@ -75,9 +102,9 @@ class Game:
             self.done = True
             w = self.go_env.winner()
             if w == 1:
-                self.winner = 0  # b
+                self.winner = BLACK  # b
             elif w == -1:
-                self.winner = 1  # w
+                self.winner = WHITE  # w
             else:
                 self.winner = None # draw
 
@@ -128,7 +155,7 @@ class Trainer:
     def add_game(self, game):
         reward = game.reward(self.learner.color)
 
-        learner_states = [game.states[i] for i, c in enumerate(game.turns) if c == self.learner.color]
+        learner_states = [game.states[i][:govars.NUM_FEATURE_CHNLS] for i, c in enumerate(game.turns) if c == self.learner.color]
         self.games_states.append(learner_states)
 
         learner_actions = [game.actions[i] for i, c in enumerate(game.turns) if c == self.learner.color]
@@ -190,6 +217,7 @@ class Player:
     def generate_action(self, state):
         mask = 1.0 - state[govars.INVD_CHNL].ravel()
         mask = np.append(mask, 1.0)  # add PASS option
+        state = state[:govars.NUM_FEATURE_CHNLS]
         state = channels_last(state)
         output = self.model.predict(state, verbose=0).ravel()
         prob = output * mask
@@ -200,31 +228,6 @@ class Player:
             action = len(prob) - 1 # PASS
         return action
 
-
-learner_model = model.cnn_policy(**defaults)
-opponent_model = model.cnn_policy(**defaults)
-
-optimizer = keras.optimizers.Adam(learning_rate=0.001)
-
-# Instantiate the learning rate schedule
-#initial_learning_rate = 0.001
-#alpha = 0.01
-#warmup_target = 1e-3
-#cosine_decay = tf.keras.optimizers.schedules.CosineDecay(
-#    initial_learning_rate=warmup_target,
-#    decay_steps=1000,
-#    alpha=alpha
-#)
-#optimizer = keras.optimizers.Adam(learning_rate=cosine_decay)
-
-learner_model.compile(optimizer=optimizer)
-learner_model.summary()
-
-bsize = args.boardsize
-komi = args.komi
-
-game_batch = 32 
-n_batches = 320
 
 game = Game(bsize, komi)
 learner = Player(learner_model)
@@ -242,7 +245,7 @@ for i in range(n_batches):
         else:
             current, other = learner, opponent
 
-        current.color, other.color = 0, 1
+        current.color, other.color = BLACK, WHITE
 
         k = 0
         while True: 

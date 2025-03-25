@@ -10,12 +10,11 @@ The state of the game is a numpy array
 
 * Shape [NUM_CHNLS, SIZE, SIZE]
 
-0 - Black pieces
-1 - White pieces
-2 - Turn (0 - black, 1 - white)
-3 - Invalid moves (including ko-protection)
-4 - Previous move was a pass
-5 - Game over
+0-15 - Stone of the player's (even pos.) or opponent's (odd pos.) color
+16 - Turn (0 - black, 1 - white)
+17 - Invalid moves (including ko-protection)
+18 - Previous move was a pass
+19 - Game over
 """
 
 
@@ -41,7 +40,13 @@ def next_state(state, action1d, canonical=False):
     passed = action1d == pass_idx
     action2d = action1d // board_shape[0], action1d % board_shape[1]
 
-    player = turn(state)
+    # Shift player states
+    xy = state[:govars.NUM_FEATURE_CHNLS-1, :, :]
+    for i in range(2, len(xy), 2)[::-1]:
+        state[i] = xy[i-2]
+
+    # X_0
+    player = 0
     previously_passed = prev_player_passed(state)
     ko_protect = None
 
@@ -76,6 +81,10 @@ def next_state(state, action1d, canonical=False):
 
     # Update invalid moves
     state[govars.INVD_CHNL] = state_utils.compute_invalid_moves(state, player, ko_protect)
+
+    # Switch stone colors at each time-step t. x_t(i), y_t(i+1) = y_t(i+1), x_t(i)
+    yx = np.concatenate([xy[i*2:(i+1)*2, :, :][::-1] for i in range(len(xy)//2)])
+    state[:govars.NUM_FEATURE_CHNLS-1, :, :] = yx
 
     # Switch turn
     state_utils.set_turn(state)
@@ -247,7 +256,7 @@ def turn(state):
 
 
 def batch_turn(batch_state):
-    return np.max(batch_state[:, govars.TURN_CHNL], axis=(1, 2)).astype(np.int)
+    return np.max(batch_state[:, govars.TURN_CHNL], axis=(1, 2)).astype(int)
 
 
 def liberties(state: np.ndarray):
